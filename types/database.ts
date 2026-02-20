@@ -46,8 +46,11 @@ export interface Database {
           synopsis: string | null;
           leveling_system: string | null;
           background: string | null;
+          world_rules: string | null;
           author_note: string | null;
           characters: any[] | null;
+          factions: any[] | null;
+          locations: any[] | null;
           current_plot_progress: string | null;
           cover_image: string | null;
           cover_visual_prompt: string | null;
@@ -66,8 +69,11 @@ export interface Database {
           synopsis?: string | null;
           leveling_system?: string | null;
           background?: string | null;
+          world_rules?: string | null;
           author_note?: string | null;
           characters?: any[] | null;
+          factions?: any[] | null;
+          locations?: any[] | null;
           current_plot_progress?: string | null;
           cover_image?: string | null;
           cover_visual_prompt?: string | null;
@@ -86,8 +92,11 @@ export interface Database {
           synopsis?: string | null;
           leveling_system?: string | null;
           background?: string | null;
+          world_rules?: string | null;
           author_note?: string | null;
           characters?: any[] | null;
+          factions?: any[] | null;
+          locations?: any[] | null;
           current_plot_progress?: string | null;
           cover_image?: string | null;
           cover_visual_prompt?: string | null;

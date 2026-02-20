@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Logo 预览 - 选择你喜欢的版本</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+      color: white;
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      text-align: center;
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      background: linear-gradient(to right, #fbbf24, #a855f7, #3b82f6);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #94a3b8;
+      margin-bottom: 3rem;
+      font-size: 1.2rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 2rem;
+      margin-bottom: 3rem;
+    }
+
+    .logo-card {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 24px;
+      padding: 2rem;
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+
+    .logo-card:hover {
+      transform: translateY(-8px);
+      box-shadow: 0 20px 60px rgba(168, 85, 247, 0.3);
+      border-color: rgba(168, 85, 247, 0.5);
+    }
+
+    .logo-card.selected {
+      border-color: #a855f7;
+      box-shadow: 0 0 40px rgba(168, 85, 247, 0.5);
+    }
+
+    .logo-title {
+      font-size: 1.5rem;
+      font-weight: bold;
+      margin-bottom: 1rem;
+      text-align: center;
+      background: linear-gradient(to right, #fbbf24, #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .logo-preview {
+      width: 100%;
+      aspect-ratio: 1;
+      background: #0f172a;
+      border-radius: 16px;
+      overflow: hidden;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .logo-info {
+      text-align: center;
+      color: #94a3b8;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      margin-top: 1rem;
+    }
+
+    .btn {
+      padding: 0.75rem 2rem;
+      border: none;
+      border-radius: 12px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .btn-primary {
+      background: linear-gradient(to right, #fbbf24, #a855f7, #3b82f6);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: scale(1.05);
+      box-shadow: 0 10px 30px rgba(168, 85, 247, 0.4);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .instructions {
+      background: rgba(251, 191, 36, 0.1);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+      border-radius: 16px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      text-align: center;
+    }
+
+    .instructions h3 {
+      color: #fbbf24;
+      margin-bottom: 0.5rem;
+    }
+
+    .instructions p {
+      color: #cbd5e1;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎨 Logo 预览</h1>
+    <p class="subtitle">选择你最喜欢的纯图案 Logo</p>
+
+    <div class="instructions">
+      <h3>📌 使用说明</h3>
+      <p>点击任意 Logo 卡片选中，然后点击"应用选中的 Logo"按钮即可更新到项目中</p>
+    </div>
+
+    <div class="grid">
+      <div class="logo-card" data-logo="logo-v2.png">
+        <div class="logo-title">版本 1 - 抽象墨迹</div>
+        <div class="logo-preview">
+          <img src="/logo-v2.png" alt="Logo V2">
+        </div>
+        <div class="logo-info">
+          金色和紫色渐变的抽象墨迹笔触<br>
+          流动的星光轨迹，现代几何图形<br>
+          深蓝到深紫到金色渐变
+        </div>
+      </div>
+
+      <div class="logo-card" data-logo="logo-v3.png">
+        <div class="logo-title">版本 2 - 流动光线</div>
+        <div class="logo-preview">
+          <img src="/logo-v3.png" alt="Logo V3">
+        </div>
+        <div class="logo-info">
+          深色星空背景，金色流动线条<br>
+          紫色渐变光晕，几何图形组合<br>
+          深邃神秘高端
+        </div>
+      </div>
+
+      <div class="logo-card" data-logo="logo-v4.png">
+        <div class="logo-title">版本 3 - 星光粒子</div>
+        <div class="logo-preview">
+          <img src="/logo-v4.png" alt="Logo V4">
+        </div>
+        <div class="logo-info">
+          金色发光的抽象墨迹图案<br>
+          流体形状，星光粒子<br>
+          现代奢华科技风
+        </div>
+      </div>
+    </div>
+
+    <div class="button-group">
+      <button class="btn btn-primary" onclick="applyLogo()">✅ 应用选中的 Logo</button>
+      <button class="btn btn-secondary" onclick="window.close()">❌ 取消</button>
+    </div>
+  </div>
+
+  <script>
+    let selectedLogo = null;
+
+    // 选择 logo
+    document.querySelectorAll('.logo-card').forEach(card => {
+      card.addEventListener('click', () => {
+        document.querySelectorAll('.logo-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        selectedLogo = card.dataset.logo;
+      });
+    });
+
+    // 应用 logo
+    function applyLogo() {
+      if (!selectedLogo) {
+        alert('请先选择一个 Logo！');
+        return;
+      }
+
+      alert(`已选择: ${selectedLogo}\n\n请告诉 Claude 使用这个 Logo 文件名，它会帮你更新到项目中。`);
+
+      // 复制文件名到剪贴板
+      navigator.clipboard.writeText(selectedLogo).then(() => {
+        console.log('Logo 文件名已复制到剪贴板:', selectedLogo);
+      });
+    }
+  </script>
+</body>
+</html>

@@ -4,7 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>InkFlow AI - Novel Writing Workflow</title>
+    <title>晨曦遗墨 - AI 小说创作平台</title>
+    <link rel="icon" type="image/png" href="/logo-new.png">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,10 +13,91 @@
     <style>
         body { font-family: 'Inter', sans-serif; }
         .serif-font { font-family: 'Noto+Serif+SC', serif; }
+
+        /* Default scrollbar styles */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+        /* Enhanced sidebar scrollbar */
+        .sidebar-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .sidebar-scrollbar::-webkit-scrollbar-track {
+            background: linear-gradient(to bottom, rgba(251, 191, 36, 0.05), rgba(168, 85, 247, 0.05));
+            border-radius: 10px;
+            margin: 8px 0;
+        }
+        .sidebar-scrollbar::-webkit-scrollbar-thumb {
+            background: linear-gradient(to bottom, rgba(251, 191, 36, 0.4), rgba(168, 85, 247, 0.4));
+            border-radius: 10px;
+            border: 2px solid rgba(15, 23, 42, 0.5);
+            transition: all 0.3s ease;
+        }
+        .sidebar-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(to bottom, rgba(251, 191, 36, 0.6), rgba(168, 85, 247, 0.6));
+            border-color: rgba(15, 23, 42, 0.3);
+        }
+
+        /* Dropdown scrollbar */
+        .dropdown-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .dropdown-scrollbar::-webkit-scrollbar-track {
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 8px;
+        }
+        .dropdown-scrollbar::-webkit-scrollbar-thumb {
+            background: linear-gradient(to bottom, rgba(168, 85, 247, 0.5), rgba(99, 102, 241, 0.5));
+            border-radius: 8px;
+            border: 1px solid rgba(30, 41, 59, 0.8);
+        }
+        .dropdown-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(to bottom, rgba(168, 85, 247, 0.7), rgba(99, 102, 241, 0.7));
+        }
+
+        /* Firefox scrollbar support */
+        .sidebar-scrollbar {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(168, 85, 247, 0.4) rgba(251, 191, 36, 0.05);
+        }
+        .dropdown-scrollbar {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(168, 85, 247, 0.5) rgba(30, 41, 59, 0.5);
+        }
+
+        /* Custom scrollbar for main content areas */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: linear-gradient(to bottom, rgba(15, 23, 42, 0.3), rgba(30, 41, 59, 0.3));
+            border-radius: 10px;
+            margin: 4px 0;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: linear-gradient(to bottom, rgba(251, 191, 36, 0.3), rgba(168, 85, 247, 0.3));
+            border-radius: 10px;
+            border: 2px solid rgba(15, 23, 42, 0.6);
+            transition: all 0.3s ease;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(to bottom, rgba(251, 191, 36, 0.5), rgba(168, 85, 247, 0.5));
+            border-color: rgba(15, 23, 42, 0.4);
+            box-shadow: 0 0 8px rgba(168, 85, 247, 0.3);
+        }
+        .custom-scrollbar {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(168, 85, 247, 0.3) rgba(15, 23, 42, 0.3);
+        }
+
+        /* Gradient animation for button */
+        @keyframes gradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
     </style>
 <script type="importmap">
 {
