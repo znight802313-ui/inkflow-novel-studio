@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "update-avatars": "./scripts/update-avatar-manifest.sh"
+    "update-avatars": "./scripts/update-avatar-manifest.sh",
+    "deploy": "npm run build && cloudbase hosting deploy dist -e ai-novel-6gz22r4k5fbbee49"
   },
   "dependencies": {
     "@cloudbase/js-sdk": "^2.25.6",

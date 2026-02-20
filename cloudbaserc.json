@@ -1,0 +1,21 @@
+{
+  "envId": "ai-novel-6gz22r4k5fbbee49",
+  "framework": {
+    "name": "vite",
+    "plugins": {
+      "client": {
+        "use": "@cloudbase/framework-plugin-website",
+        "inputs": {
+          "buildCommand": "npm run build",
+          "outputPath": "dist",
+          "cloudPath": "/",
+          "ignore": [
+            ".git",
+            ".github",
+            "node_modules"
+          ]
+        }
+      }
+    }
+  }
+}
