@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { NovelSettings, Character, Faction, Location, AvailableModel, Chapter } from '../types';
-import { generateWorldBuilding, syncPlotBatch, generateCoverImage, extractWritingStyle, generateCharacterAvatars } from '../services/geminiService';
+import { generateWorldBuilding, syncPlotBatch, generateCoverImage, extractWritingStyle, generateCharacterAvatars, generateAvatarPrompt } from '../services/geminiService';
 
 /* --- Helper Components for the aesthetic layout --- */
 
@@ -150,6 +150,13 @@ const WorldBuilding: React.FC<WorldBuildingProps> = ({ settings, chapters, onUpd
   const [isGeneratingSingleAvatar, setIsGeneratingSingleAvatar] = useState(false);
   const [avatarSearchQuery, setAvatarSearchQuery] = useState('');
 
+  // State for AI Avatar Generation with Preview
+  const [aiAvatarPreview, setAiAvatarPreview] = useState<string | null>(null);
+  const [aiAvatarPrompt, setAiAvatarPrompt] = useState<string>('');
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
+  // Cache prompts for each character to avoid regenerating when switching tabs
+  const [promptCache, setPromptCache] = useState<{ [charIndex: number]: string }>({});
+
   // Load available avatars from public/avatars folder
   useEffect(() => {
     const loadAvatars = async () => {
@@ -180,7 +187,76 @@ const WorldBuilding: React.FC<WorldBuildingProps> = ({ settings, chapters, onUpd
     setIsAvatarSelectorOpen(true);
     setAvatarSelectorTab('library');
     setAvatarSearchQuery(''); // Reset search when opening
+
+    // Load cached prompt if exists, otherwise empty
+    if (promptCache[charIndex]) {
+      setAiAvatarPrompt(promptCache[charIndex]);
+    } else {
+      setAiAvatarPrompt('');
+    }
+    setAiAvatarPreview(null); // Reset preview
   };
+
+  // Auto-generate prompt when switching to AI tab
+  useEffect(() => {
+    const generatePromptForCharacter = async () => {
+      if (avatarSelectorTab === 'ai' && avatarSelectorCharIndex !== null) {
+        // Check if we already have a cached prompt
+        if (promptCache[avatarSelectorCharIndex]) {
+          setAiAvatarPrompt(promptCache[avatarSelectorCharIndex]);
+          return;
+        }
+
+        // Generate new prompt
+        const character = settings.characters[avatarSelectorCharIndex];
+        if (!character) return;
+
+        setIsGeneratingPrompt(true);
+        try {
+          const generatedPrompt = await generateAvatarPrompt(
+            {
+              name: character.name,
+              gender: character.gender,
+              age: character.age,
+              description: character.description
+            },
+            settings.novelType || '',
+            model
+          );
+
+          setAiAvatarPrompt(generatedPrompt);
+          // Cache the prompt
+          setPromptCache(prev => ({
+            ...prev,
+            [avatarSelectorCharIndex]: generatedPrompt
+          }));
+        } catch (error) {
+          console.error('Failed to generate prompt:', error);
+          // Fallback to simple prompt
+          const fallbackPrompt = `${character.name}, ${character.gender || ''}, ${character.age || ''}, ${character.description || ''}`;
+          setAiAvatarPrompt(fallbackPrompt);
+          setPromptCache(prev => ({
+            ...prev,
+            [avatarSelectorCharIndex]: fallbackPrompt
+          }));
+        } finally {
+          setIsGeneratingPrompt(false);
+        }
+      }
+    };
+
+    generatePromptForCharacter();
+  }, [avatarSelectorTab, avatarSelectorCharIndex, settings.characters, settings.novelType, model, promptCache]);
+
+  // Update cache when prompt is manually edited
+  useEffect(() => {
+    if (avatarSelectorCharIndex !== null && aiAvatarPrompt && !isGeneratingPrompt) {
+      setPromptCache(prev => ({
+        ...prev,
+        [avatarSelectorCharIndex]: aiAvatarPrompt
+      }));
+    }
+  }, [aiAvatarPrompt, avatarSelectorCharIndex, isGeneratingPrompt]);
 
   // Select avatar from library
   const selectAvatarFromLibrary = (avatarPath: string) => {
@@ -255,15 +331,11 @@ const WorldBuilding: React.FC<WorldBuildingProps> = ({ settings, chapters, onUpd
       );
 
       if (avatars.length > 0) {
-        const updatedCharacters = [...settings.characters];
-        updatedCharacters[avatarSelectorCharIndex] = {
-          ...updatedCharacters[avatarSelectorCharIndex],
-          avatar: avatars[0]
-        };
-
-        onUpdate({ characters: updatedCharacters });
-        setIsAvatarSelectorOpen(false);
-        setAvatarSelectorCharIndex(null);
+        // Set preview instead of directly applying
+        setAiAvatarPreview(avatars[0]);
+        // Generate initial prompt based on character info
+        const prompt = `${character.name}, ${character.gender || ''}, ${character.age || ''}, ${character.description || ''}`;
+        setAiAvatarPrompt(prompt);
       }
     } catch (error: any) {
       console.error('Failed to generate avatar:', error);
@@ -271,6 +343,54 @@ const WorldBuilding: React.FC<WorldBuildingProps> = ({ settings, chapters, onUpd
     } finally {
       setIsGeneratingSingleAvatar(false);
     }
+  };
+
+  // Regenerate avatar with custom prompt
+  const handleRegenerateAvatar = async () => {
+    if (avatarSelectorCharIndex === null || !aiAvatarPrompt.trim()) return;
+
+    const character = settings.characters[avatarSelectorCharIndex];
+    if (!character) return;
+
+    setIsGeneratingSingleAvatar(true);
+
+    try {
+      const avatars = await generateCharacterAvatars(
+        [{
+          name: character.name,
+          gender: character.gender,
+          age: character.age,
+          description: aiAvatarPrompt // Use custom prompt
+        }],
+        settings.style || ''
+      );
+
+      if (avatars.length > 0) {
+        setAiAvatarPreview(avatars[0]);
+      }
+    } catch (error: any) {
+      console.error('Failed to regenerate avatar:', error);
+      alert(`重新生成头像失败: ${error.message || '未知错误'}`);
+    } finally {
+      setIsGeneratingSingleAvatar(false);
+    }
+  };
+
+  // Confirm and apply the generated avatar
+  const handleConfirmAiAvatar = () => {
+    if (avatarSelectorCharIndex === null || !aiAvatarPreview) return;
+
+    const updatedCharacters = [...settings.characters];
+    updatedCharacters[avatarSelectorCharIndex] = {
+      ...updatedCharacters[avatarSelectorCharIndex],
+      avatar: aiAvatarPreview
+    };
+
+    onUpdate({ characters: updatedCharacters });
+    setIsAvatarSelectorOpen(false);
+    setAvatarSelectorCharIndex(null);
+    setAiAvatarPreview(null);
+    setAiAvatarPrompt('');
   };
 
   const handleAIGenerate = async () => {
@@ -3059,33 +3179,80 @@ const WorldBuilding: React.FC<WorldBuildingProps> = ({ settings, chapters, onUpd
 
               {/* AI Generation Tab */}
               {avatarSelectorTab === 'ai' && (
-                <div className="text-center py-12">
-                  <div className="text-6xl mb-6">🤖</div>
-                  <p className="text-slate-400 mb-6">
-                    使用 AI 为 {settings.characters[avatarSelectorCharIndex]?.name} 生成专属头像
-                  </p>
-                  <div className="bg-slate-800/50 rounded-xl p-4 mb-6 text-left max-w-md mx-auto">
-                    <div className="text-sm text-slate-300 space-y-2">
-                      <p><strong>角色信息：</strong></p>
-                      <p>• 姓名: {settings.characters[avatarSelectorCharIndex]?.name || '未命名'}</p>
-                      {settings.characters[avatarSelectorCharIndex]?.gender && (
-                        <p>• 性别: {settings.characters[avatarSelectorCharIndex].gender}</p>
-                      )}
-                      {settings.characters[avatarSelectorCharIndex]?.age && (
-                        <p>• 年龄: {settings.characters[avatarSelectorCharIndex].age}</p>
-                      )}
-                      {settings.characters[avatarSelectorCharIndex]?.description && (
-                        <p>• 描述: {settings.characters[avatarSelectorCharIndex].description.slice(0, 50)}...</p>
+                <div className="grid grid-cols-2 gap-4 h-[calc(90vh-250px)]">
+                  {/* Left: Preview */}
+                  <div className="flex flex-col">
+                    <h4 className="text-sm font-bold text-amber-300 mb-2 uppercase tracking-wider">预览效果</h4>
+                    <div className="relative rounded-2xl overflow-hidden border-2 border-amber-500/30 bg-slate-900/50 flex-1">
+                      {aiAvatarPreview ? (
+                        <>
+                          <img
+                            src={aiAvatarPreview}
+                            alt="AI Generated Avatar"
+                            className="w-full h-full object-contain"
+                          />
+                          {isGeneratingSingleAvatar && (
+                            <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+                              <div className="text-center">
+                                <div className="animate-spin text-4xl mb-2">⚙️</div>
+                                <p className="text-slate-300">生成中...</p>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-500">
+                          <div className="text-5xl mb-3">🎨</div>
+                          <p className="text-sm">等待生成...</p>
+                          <p className="text-xs mt-1 text-slate-600">编辑右侧指令后点击生成</p>
+                        </div>
                       )}
                     </div>
+
+                    {/* Action buttons */}
+                    {aiAvatarPreview && (
+                      <div className="mt-3">
+                        <button
+                          onClick={handleConfirmAiAvatar}
+                          disabled={isGeneratingSingleAvatar}
+                          className="w-full px-4 py-2.5 rounded-xl bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-200 border border-green-500/30 hover:border-green-400/50 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          ✓ 确认应用
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <button
-                    onClick={handleGenerateSingleAvatar}
-                    disabled={isGeneratingSingleAvatar}
-                    className="px-6 py-3 rounded-xl bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-200 border border-purple-500/30 hover:border-purple-400/50 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isGeneratingSingleAvatar ? '生成中...' : '🎨 生成头像'}
-                  </button>
+
+                  {/* Right: Prompt Editor */}
+                  <div className="flex flex-col">
+                    <div className="flex justify-between items-center mb-2">
+                      <h4 className="text-sm font-bold text-purple-300 uppercase tracking-wider">生成指令</h4>
+                      {isGeneratingPrompt && (
+                        <span className="text-xs text-purple-400 flex items-center gap-1">
+                          <span className="animate-spin">⚙️</span>
+                          生成中...
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Prompt Editor */}
+                    <textarea
+                      value={aiAvatarPrompt}
+                      onChange={(e) => setAiAvatarPrompt(e.target.value)}
+                      placeholder="AI 正在为你生成角色描述..."
+                      disabled={isGeneratingPrompt}
+                      className="flex-1 w-full bg-slate-950/60 border border-purple-500/30 rounded-xl px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400/60 transition-all resize-none disabled:opacity-50 disabled:cursor-wait"
+                    />
+
+                    {/* Generate Button */}
+                    <button
+                      onClick={aiAvatarPreview ? handleRegenerateAvatar : handleGenerateSingleAvatar}
+                      disabled={isGeneratingSingleAvatar || isGeneratingPrompt || !aiAvatarPrompt.trim()}
+                      className="w-full mt-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-200 border border-purple-500/30 hover:border-purple-400/50 transition-all font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isGeneratingSingleAvatar ? '生成图片中...' : (aiAvatarPreview ? '🔄 重新生成图片' : '🎨 生成头像图片')}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

@@ -835,6 +835,123 @@ export const generateCharacterAvatars = async (
 };
 
 /**
+ * Generate image prompt for character avatar
+ * Uses AI to create a detailed prompt based on character info
+ * Optimized for Chinese AI image models like JiMeng (即梦)
+ */
+export const generateAvatarPrompt = async (
+  character: { name: string; gender?: string; age?: string; description?: string },
+  novelStyle: string,
+  model: AvailableModel = 'claude-sonnet-4-5-20250929'
+): Promise<string> => {
+  try {
+    const config = getApiConfig(model);
+
+    const systemPrompt = `你是一个专业的中文AI绘画提示词生成专家，专门为即梦（JiMeng）等中文AI绘画模型生成提示词。
+
+要求：
+1. 必须使用纯中文，不要使用任何英文单词
+2. 必须包含"画面禁止出现文字"或"禁止文字"
+3. 详细描述角色的外貌特征、服装、气质、表情、视角
+4. 包含画面构图、氛围感、光影效果
+5. 根据小说类型选择合适的画风和艺术风格
+6. 强调画质：高质量、极致细节、64K、超高清
+7. 只输出提示词本身，用逗号分隔，不要有其他解释
+8. 提示词长度控制在150-200字之间
+
+禁止使用的词汇（会干扰头像生成）：
+- 身高相关：身高、高大、矮小、修长等
+- 黑白配色
+- 动态模糊、背景动态模糊
+- 屏幕四角偏暗、四角偏暗
+
+参考优质示例：
+动漫头像，二次元头像，主题风格，画面完美比例，高级感配色，脸部特写，参考网红模版，氛围感，二次元氛围感头像，男生，18岁，随机搭配，眼神犀利，彰显气质，动漫风格，高质量，极致细节，64K，超高清，男神，小说男主，蔑视的眼神，仰视视角凸显角色的威压，画面禁止出现文字
+
+关键要素：
+- 画面构图：脸部特写、仰视视角、俯视视角、平视视角
+- 氛围感：氛围感、大面积留白、参考网红模版
+- 配色：高级感配色、冷色调、暖色调（不要黑白配色）
+- 眼神：犀利、温柔、冷漠、坚定、蔑视等
+- 气质：彰显气质、威压感、温柔感、神秘感
+- 画质：高质量、极致细节、64K、超高清`;
+
+    const userPrompt = `小说类型：${novelStyle || '现代'}
+角色信息：
+- 姓名：${character.name}
+- 性别：${character.gender || '未知'}
+- 年龄：${character.age || '未知'}
+- 描述：${character.description || '无'}
+
+请生成一个纯中文的角色头像绘画提示词，适合即梦AI绘画模型，必须包含"画面禁止出现文字"。`;
+
+    const response = await fetch(`${config.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.7,
+        max_tokens: 600
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to generate prompt: ${response.status}`);
+    }
+
+    const data = await response.json();
+    let generatedPrompt = data.choices[0]?.message?.content?.trim() || '';
+
+    // Ensure "禁止文字" is included
+    if (!generatedPrompt.includes('禁止') && !generatedPrompt.includes('文字')) {
+      generatedPrompt += '，画面禁止出现文字';
+    }
+
+    console.log('[SUCCESS] Generated avatar prompt:', generatedPrompt);
+    return generatedPrompt;
+  } catch (error) {
+    console.error("Error generating avatar prompt:", error);
+    // Fallback to high-quality Chinese prompt
+    const genderDesc = character.gender === '女' ? '女性' : character.gender === '男' ? '男性' : '人物';
+    const ageDesc = character.age ? `${character.age}岁` : '青年';
+    const desc = character.description?.substring(0, 80) || '';
+
+    // Style mapping with enhanced details (removed: 身高, 黑白配色, 动态模糊, 四角偏暗)
+    const styleMap: { [key: string]: string } = {
+      '玄幻': '动漫头像，二次元头像，中国风玄幻风格，古风服饰，仙气飘逸，脸部特写，眼神深邃，彰显仙侠气质，大面积留白，氛围感，高级感配色',
+      '修仙': '动漫头像，二次元头像，仙侠风格，仙袍飘逸，灵气环绕，脸部特写，眼神坚定，修仙者气质，大面积留白，氛围感，高级感配色',
+      '都市': '动漫头像，二次元头像，现代都市风格，时尚服装，写实画风，脸部特写，眼神自信，都市精英气质，参考网红模版，氛围感，高级感配色',
+      '科幻': '动漫头像，二次元头像，科幻未来风格，科技装备，赛博朋克，脸部特写，眼神犀利，科技感，氛围感，冷色调配色',
+      '武侠': '动漫头像，二次元头像，中国武侠风格，古装侠客，水墨质感，脸部特写，眼神凌厉，侠客气质，大面积留白，氛围感，高级感配色',
+      '言情': '动漫头像，二次元头像，唯美浪漫风格，精致五官，柔和光影，脸部特写，眼神温柔，浪漫气质，参考网红模版，氛围感，暖色调配色',
+      '悬疑': '动漫头像，二次元头像，写实风格，现代服装，神秘氛围，脸部特写，眼神深邃，神秘气质，氛围感，冷色调配色',
+      '历史': '动漫头像，二次元头像，古代历史风格，朝代服饰，厚重质感，脸部特写，眼神威严，历史人物气质，大面积留白，氛围感，高级感配色'
+    };
+
+    let artStyle = '动漫头像，二次元头像，主题风格，画面完美比例，高级感配色，脸部特写，氛围感';
+    for (const [key, value] of Object.entries(styleMap)) {
+      if (novelStyle?.includes(key)) {
+        artStyle = value;
+        break;
+      }
+    }
+
+    // Build comprehensive prompt
+    const eyeExpression = character.gender === '女' ? '眼神温柔' : '眼神犀利';
+    const characterType = character.gender === '女' ? '小说女主' : '小说男主';
+
+    return `${artStyle}，${genderDesc}，${ageDesc}，${desc}，${eyeExpression}，彰显气质，动漫风格，高质量，极致细节，64K，超高清，${characterType}，画面禁止出现文字`;
+  }
+};
+
+/**
  * Split a 1024x1024 image into 4 equal parts (2x2 grid)
  * @param base64Image Base64 encoded image
  * @returns Array of 4 base64 images
