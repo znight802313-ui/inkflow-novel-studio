@@ -363,6 +363,26 @@ const WorldBuilding: React.FC<WorldBuildingProps> = ({ settings, chapters, onUpd
     setAiAvatarPrompt('');
   };
 
+  const handleAIGenerate = async () => {
+    if (!idea.trim()) return;
+    setIsLoading(true);
+    try {
+      const result = await generateWorldBuilding(
+        idea,
+        model,
+        settings.novelType,
+        settings.targetTotalWords,
+        settings.targetChapterCount
+      );
+      onUpdate(result);
+    } catch (e) {
+      console.error(e);
+      alert('AI 生成失败，请重试');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Generate cover prompt only
   const handleGeneratePrompt = () => {
     if (!settings.title) {
