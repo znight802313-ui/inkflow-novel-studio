@@ -835,6 +835,73 @@ export const generateCharacterAvatars = async (
 };
 
 /**
+ * Generate single character avatar with custom prompt
+ * Uses the user-provided prompt directly for better control
+ */
+export const generateSingleAvatar = async (
+  customPrompt: string
+): Promise<string> => {
+  try {
+    const IMAGE_CONFIG = {
+      baseUrl: 'https://api.newcoin.tech',
+      apiKey: 'sk-3r6UM9oKHp1GJcuFNpcfXRedeD3AS74gS3r0IapOgpmDsGOd',
+      model: 'jimeng-4.5'
+    };
+
+    console.log('[DEBUG] Generating single avatar with custom prompt:', customPrompt);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
+
+    try {
+      const response = await fetch(`${IMAGE_CONFIG.baseUrl}/v1/images/generations`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${IMAGE_CONFIG.apiKey}`
+        },
+        body: JSON.stringify({
+          model: IMAGE_CONFIG.model,
+          prompt: customPrompt,
+          n: 1,
+          size: '1024x1024',
+          response_format: 'b64_json'
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[ERROR] Single avatar generation failed:', errorText);
+        throw new Error(`Avatar generation failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.data || !data.data[0] || !data.data[0].b64_json) {
+        throw new Error('Invalid response from avatar generation API');
+      }
+
+      const imageBase64 = data.data[0].b64_json;
+      console.log('[SUCCESS] Single avatar generated');
+
+      return `data:image/png;base64,${imageBase64}`;
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId);
+      if (fetchError.name === 'AbortError') {
+        throw new Error('头像生成超时（5分钟）');
+      }
+      throw fetchError;
+    }
+  } catch (error) {
+    console.error("Error generating single avatar:", error);
+    throw error;
+  }
+};
+
+/**
  * Generate image prompt for character avatar
  * Uses AI to create a detailed prompt based on character info
  * Optimized for Chinese AI image models like JiMeng (即梦)

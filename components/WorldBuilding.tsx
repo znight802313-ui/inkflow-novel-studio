@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { NovelSettings, Character, Faction, Location, AvailableModel, Chapter } from '../types';
-import { generateWorldBuilding, syncPlotBatch, generateCoverImage, extractWritingStyle, generateCharacterAvatars, generateAvatarPrompt } from '../services/geminiService';
+import { generateWorldBuilding, syncPlotBatch, generateCoverImage, extractWritingStyle, generateAvatarPrompt, generateSingleAvatar } from '../services/geminiService';
 
 /* --- Helper Components for the aesthetic layout --- */
 
@@ -140,7 +140,7 @@ const WorldBuilding: React.FC<WorldBuildingProps> = ({ settings, chapters, onUpd
   const [locationSearchQuery, setLocationSearchQuery] = useState('');
 
   // State for Avatar Generation
-  const [isGeneratingAvatars, setIsGeneratingAvatars] = useState(false);
+  // Removed batch avatar generation - now only support single avatar generation through selector
 
   // State for Avatar Selection Modal
   const [isAvatarSelectorOpen, setIsAvatarSelectorOpen] = useState(false);
@@ -312,31 +312,14 @@ const WorldBuilding: React.FC<WorldBuildingProps> = ({ settings, chapters, onUpd
 
   // Generate single avatar with AI
   const handleGenerateSingleAvatar = async () => {
-    if (avatarSelectorCharIndex === null) return;
-
-    const character = settings.characters[avatarSelectorCharIndex];
-    if (!character) return;
+    if (avatarSelectorCharIndex === null || !aiAvatarPrompt.trim()) return;
 
     setIsGeneratingSingleAvatar(true);
 
     try {
-      const avatars = await generateCharacterAvatars(
-        [{
-          name: character.name,
-          gender: character.gender,
-          age: character.age,
-          description: character.description
-        }],
-        settings.style || ''
-      );
-
-      if (avatars.length > 0) {
-        // Set preview instead of directly applying
-        setAiAvatarPreview(avatars[0]);
-        // Generate initial prompt based on character info
-        const prompt = `${character.name}, ${character.gender || ''}, ${character.age || ''}, ${character.description || ''}`;
-        setAiAvatarPrompt(prompt);
-      }
+      // Use the custom prompt directly
+      const avatar = await generateSingleAvatar(aiAvatarPrompt);
+      setAiAvatarPreview(avatar);
     } catch (error: any) {
       console.error('Failed to generate avatar:', error);
       alert(`生成头像失败: ${error.message || '未知错误'}`);
@@ -349,25 +332,12 @@ const WorldBuilding: React.FC<WorldBuildingProps> = ({ settings, chapters, onUpd
   const handleRegenerateAvatar = async () => {
     if (avatarSelectorCharIndex === null || !aiAvatarPrompt.trim()) return;
 
-    const character = settings.characters[avatarSelectorCharIndex];
-    if (!character) return;
-
     setIsGeneratingSingleAvatar(true);
 
     try {
-      const avatars = await generateCharacterAvatars(
-        [{
-          name: character.name,
-          gender: character.gender,
-          age: character.age,
-          description: aiAvatarPrompt // Use custom prompt
-        }],
-        settings.style || ''
-      );
-
-      if (avatars.length > 0) {
-        setAiAvatarPreview(avatars[0]);
-      }
+      // Use the custom prompt directly
+      const avatar = await generateSingleAvatar(aiAvatarPrompt);
+      setAiAvatarPreview(avatar);
     } catch (error: any) {
       console.error('Failed to regenerate avatar:', error);
       alert(`重新生成头像失败: ${error.message || '未知错误'}`);
@@ -391,81 +361,6 @@ const WorldBuilding: React.FC<WorldBuildingProps> = ({ settings, chapters, onUpd
     setAvatarSelectorCharIndex(null);
     setAiAvatarPreview(null);
     setAiAvatarPrompt('');
-  };
-
-  const handleAIGenerate = async () => {
-    if (!idea.trim()) return;
-    setIsLoading(true);
-    try {
-      const result = await generateWorldBuilding(
-        idea,
-        model,
-        settings.novelType,
-        settings.targetTotalWords,
-        settings.targetChapterCount
-      );
-      onUpdate(result);
-    } catch (e) {
-      console.error(e);
-      alert('AI 生成失败，请重试');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Generate avatars for characters without avatars
-  const handleGenerateAvatars = async () => {
-    if (!settings.characters || settings.characters.length === 0) {
-      alert("暂无角色，无法生成头像");
-      return;
-    }
-
-    // Find characters without avatars (up to 4)
-    const charactersNeedingAvatars = settings.characters
-      .filter(char => !char.avatar)
-      .slice(0, 4);
-
-    if (charactersNeedingAvatars.length === 0) {
-      alert("所有角色都已有头像");
-      return;
-    }
-
-    setIsGeneratingAvatars(true);
-    setIsLoading(true);
-
-    try {
-      console.log(`Generating avatars for ${charactersNeedingAvatars.length} characters...`);
-
-      const avatars = await generateCharacterAvatars(
-        charactersNeedingAvatars.map(char => ({
-          name: char.name,
-          gender: char.gender,
-          age: char.age,
-          description: char.description
-        })),
-        settings.style || ''
-      );
-
-      console.log(`Generated ${avatars.length} avatars`);
-
-      // Update characters with avatars
-      const updatedCharacters = settings.characters.map(char => {
-        const index = charactersNeedingAvatars.findIndex(c => c.name === char.name);
-        if (index !== -1 && avatars[index]) {
-          return { ...char, avatar: avatars[index] };
-        }
-        return char;
-      });
-
-      onUpdate({ characters: updatedCharacters });
-      alert(`成功为 ${avatars.length} 个角色生成头像！`);
-    } catch (error: any) {
-      console.error("生成头像失败:", error);
-      alert(`生成头像失败: ${error.message || '未知错误'}`);
-    } finally {
-      setIsGeneratingAvatars(false);
-      setIsLoading(false);
-    }
   };
 
   // Generate cover prompt only
