@@ -284,7 +284,7 @@ const App: React.FC = () => {
     setCurrentView(AppViews.REVIEW);
   };
 
-  const handleConfirmArchive = (finalChapter: Chapter, updates: Partial<NovelSettings>) => {
+  const handleConfirmArchive = async (finalChapter: Chapter, updates: Partial<NovelSettings>) => {
     console.log('Archiving chapter with number:', finalChapter.number);
     console.log('Current chapters count:', chapters.length);
 
@@ -314,6 +314,16 @@ const App: React.FC = () => {
     setPendingDraft(null);
     localStorage.removeItem(DRAFT_STORAGE_KEY);
     localStorage.removeItem('inkflow_current_instruction');
+
+    // 归档完成后，删除云端草稿，准备创建新章节
+    if (currentProjectId) {
+      const { default: DraftService } = await import('./services/draftService');
+      const currentDraft = await DraftService.getCurrentDraft(currentProjectId);
+      if (currentDraft?._id) {
+        console.log('Deleting archived chapter draft:', currentDraft._id);
+        await DraftService.deleteDraft(currentDraft._id);
+      }
+    }
 
     const newCharCount = (updates.characters?.length || 0) - (settings.characters?.length || 0);
     const msg = `✅ 归档完成!\n\n• 剧情沙盘已更新\n• 新增人物: ${Math.max(0, newCharCount)} 人\n• 章节已存入阅览室`;
@@ -565,6 +575,7 @@ const App: React.FC = () => {
                 onUpdateSettings={handleUpdateSettings}
                 setIsLoading={setIsLoading}
                 model={selectedModel}
+                projectId={currentProjectId}
               />
             )}
             {currentView === AppViews.REVIEW && (
