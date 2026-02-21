@@ -100,20 +100,61 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 3, baseDelay = 2000)
 }
 
 /**
+ * Use AI to fix malformed JSON
+ */
+const fixJSONWithAI = async (brokenJSON: string, model: AvailableModel): Promise<any> => {
+  try {
+    console.log('Attempting to fix JSON with AI...');
+
+    const systemPrompt = `你是一个 JSON 修复专家。用户会给你一段格式错误的 JSON，你需要修复它并返回正确的 JSON。
+
+修复规则：
+1. 修复未转义的引号
+2. 移除尾随逗号
+3. 确保所有字符串值都正确转义
+4. 保持原始数据内容不变，只修复格式
+5. 必须返回有效的 JSON 对象
+
+直接返回修复后的 JSON，不要添加任何解释或 markdown 代码块。`;
+
+    const userPrompt = `请修复以下 JSON：
+
+${brokenJSON}`;
+
+    const response = await callChatAPI(model, [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ], {
+      max_tokens: 8192,
+      temperature: 0
+    });
+
+    // Try to parse the fixed JSON
+    return parseAIResponse(response);
+  } catch (error) {
+    console.error('AI JSON fix failed:', error);
+    return null;
+  }
+};
+
+/**
  * Helper to clean AI response text which often contains markdown formatting
  */
 const parseAIResponse = (text: string | undefined) => {
   if (!text) return null;
+
   try {
     return JSON.parse(text);
   } catch (e) {
+    console.log('Initial JSON parse failed, trying fallbacks...');
+
     // Attempt to extract from Markdown code blocks
     const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (codeBlockMatch) {
       try {
         return JSON.parse(codeBlockMatch[1]);
       } catch (e2) {
-        // Continue to fallback
+        console.log('Code block extraction failed');
       }
     }
 
@@ -121,10 +162,37 @@ const parseAIResponse = (text: string | undefined) => {
     const firstOpen = text.indexOf('{');
     const lastClose = text.lastIndexOf('}');
     if (firstOpen !== -1 && lastClose !== -1) {
+      let jsonStr = text.substring(firstOpen, lastClose + 1);
+
       try {
-        return JSON.parse(text.substring(firstOpen, lastClose + 1));
+        // Try to fix common JSON issues
+        // 1. Remove trailing commas before } or ]
+        jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+
+        // 2. Fix common escape issues
+        // Replace unescaped newlines in strings
+        jsonStr = jsonStr.replace(/:\s*"([^"]*?)\\n([^"]*?)"/g, (match, p1, p2) => {
+          return `: "${p1}\\n${p2}"`;
+        });
+
+        // 3. Try to fix unescaped quotes (very basic)
+        // This is a heuristic and may not work for all cases
+
+        return JSON.parse(jsonStr);
       } catch (e3) {
         console.error("Fallback JSON Parse also failed", e3);
+        console.error("Attempted to parse:", jsonStr.substring(0, 500));
+
+        // Last resort: try to fix more aggressively
+        try {
+          // Remove all control characters except newlines and tabs
+          jsonStr = jsonStr.replace(/[\x00-\x09\x0B-\x0C\x0E-\x1F\x7F]/g, '');
+
+          // Try one more time
+          return JSON.parse(jsonStr);
+        } catch (e4) {
+          console.error("Final fallback also failed");
+        }
       }
     }
     return null;
@@ -1178,7 +1246,10 @@ export const streamChapterDraft = async (
         : lastChapter.content;
     }
 
-    // RAG: 智能检索相关角色和势力
+    // ============================================
+    // RAG 检索逻辑（三步走）
+    // ============================================
+
     // 构建检索上下文：章节梗概 + 剧情要点 + 指定出场角色 + 上一章内容片段
     const retrievalContext = [
       creationOptions.synopsis || '',
@@ -1187,7 +1258,9 @@ export const streamChapterDraft = async (
       safeLastChapterContent.slice(-500) // 上一章结尾500字
     ].filter(Boolean).join(' ').toLowerCase();
 
-    // 检索相关角色（基于关键词匹配）
+    // ============================================
+    // 第一步：检索相关角色（基于出场角色和梗概）
+    // ============================================
     const relevantCharacters = new Set<string>();
 
     // 1. 添加指定出场角色
@@ -1213,29 +1286,75 @@ export const streamChapterDraft = async (
       });
     }
 
-    // 检索相关势力
+    // ============================================
+    // 第二步：根据完整角色信息检索势力和地点
+    // ============================================
+
+    // 获取检索到的完整角色信息
+    const retrievedCharacters = settings.characters?.filter(c =>
+      relevantCharacters.has(c.name)
+    ) || [];
+
+    // 2.1 检索相关势力（基于角色的faction字段 + 上下文提及）
     const relevantFactions = new Set<string>();
+
+    // 从角色的faction字段收集势力
+    retrievedCharacters.forEach(char => {
+      if (char.faction) {
+        relevantFactions.add(char.faction);
+      }
+    });
+
+    // 检查上下文中直接提及的势力
     if (settings.factions && settings.factions.length > 0) {
       settings.factions.forEach(faction => {
-        // 检查势力名是否在上下文中出现
         if (retrievalContext.includes(faction.name.toLowerCase())) {
           relevantFactions.add(faction.name);
         }
-        // 检查势力成员是否在相关角色中
-        faction.members.forEach(member => {
-          if (relevantCharacters.has(member)) {
-            relevantFactions.add(faction.name);
-          }
-        });
       });
     }
 
-    // Build character context with detailed information (使用检索到的角色)
+    // 2.2 检索相关地点（基于角色的currentLocation字段 + 上下文提及）
+    const relevantLocations = new Set<string>();
+
+    // 从角色的currentLocation字段收集地点
+    retrievedCharacters.forEach(char => {
+      if (char.currentLocation && char.currentLocation !== '未知') {
+        relevantLocations.add(char.currentLocation);
+      }
+    });
+
+    // 检查上下文中直接提及的地点
+    if (settings.locations && settings.locations.length > 0) {
+      settings.locations.forEach(location => {
+        if (retrievalContext.includes(location.name.toLowerCase())) {
+          relevantLocations.add(location.name);
+        }
+      });
+    }
+
+    // 从势力的territory字段收集地点（势力所在地域）
+    if (settings.factions && settings.factions.length > 0) {
+      settings.factions.forEach(faction => {
+        if (relevantFactions.has(faction.name) && faction.territory) {
+          // 检查territory是否匹配某个地点名称
+          settings.locations?.forEach(location => {
+            if (faction.territory.includes(location.name) || location.name.includes(faction.territory)) {
+              relevantLocations.add(location.name);
+            }
+          });
+        }
+      });
+    }
+
+    // ============================================
+    // 第三步：构建上下文信息（角色、势力、地点）
+    // ============================================
+
+    // 3.1 构建角色上下文（使用检索到的角色）
     let characterContext = '';
     if (relevantCharacters.size > 0) {
-      const featuredChars = settings.characters?.filter(c =>
-        relevantCharacters.has(c.name)
-      ) || [];
+      const featuredChars = retrievedCharacters;
       if (featuredChars.length > 0) {
         characterContext = `\n\n=== 本章相关角色档案 ===\n${featuredChars.map(c => {
           let charInfo = `- ${c.name}（${c.role}）：${c.description}，与主角关系：${c.relationToProtagonist}`;
@@ -1244,6 +1363,7 @@ export const streamChapterDraft = async (
           if (c.currentStatus) charInfo += `，当前状态：${c.currentStatus}`;
           if (c.cultivationLevel) charInfo += `，境界：${c.cultivationLevel}`;
           if (c.faction) charInfo += `，所属势力：${c.faction}`;
+          if (c.currentLocation) charInfo += `，当前所在地：${c.currentLocation}`;
 
           // 添加关系网(简化版)
           if (c.relations && c.relations.length > 0) {
@@ -1266,7 +1386,7 @@ export const streamChapterDraft = async (
       }
     }
 
-    // Build faction context (使用检索到的势力)
+    // 3.2 构建势力上下文（使用检索到的势力）
     let factionContext = '';
     if (relevantFactions.size > 0) {
       const featuredFactions = settings.factions?.filter(f =>
@@ -1276,6 +1396,23 @@ export const streamChapterDraft = async (
         factionContext = `\n\n=== 本章相关势力档案 ===\n${featuredFactions.map(f =>
           `- ${f.name}：${f.description}，地域：${f.territory}，成员：${f.members.join('、')}`
         ).join('\n')}`;
+      }
+    }
+
+    // 3.3 构建地点上下文（使用检索到的地点）
+    let locationContext = '';
+    if (relevantLocations.size > 0) {
+      const featuredLocations = settings.locations?.filter(l =>
+        relevantLocations.has(l.name)
+      ) || [];
+      if (featuredLocations.length > 0) {
+        locationContext = `\n\n=== 本章相关地点档案 ===\n${featuredLocations.map(l => {
+          let locInfo = `- ${l.name}：${l.description}`;
+          if (l.factions && l.factions.length > 0) {
+            locInfo += `，归属势力：${l.factions.join('、')}`;
+          }
+          return locInfo;
+        }).join('\n')}`;
       }
     }
 
@@ -1351,7 +1488,7 @@ ${currentChapterNum === 1 ? `简介：${settings.synopsis}` : ''}
 
 === 剧情沙盘（包含所有已归档章节的剧情进展） ===
 ${settings.currentPlotProgress}
-${characterContext}${factionContext}${newCharContext}${plotPointsContext}
+${characterContext}${factionContext}${locationContext}${newCharContext}${plotPointsContext}
 
 ${lastChapter ? `
 === 上一章（第${lastChapter.number}章）完整内容 [必须阅读] ===
@@ -1445,6 +1582,7 @@ export const generateChapterPlan = async (
 
           // 添加状态信息
           if (c.currentStatus) charInfo += ` | 当前状态: ${c.currentStatus}`;
+          if (c.currentLocation) charInfo += ` | 当前所在地: ${c.currentLocation}`;
           if (c.faction) charInfo += ` | 所属势力: ${c.faction}`;
           if (c.cultivationLevel) charInfo += ` | 境界: ${c.cultivationLevel}`;
 
@@ -1476,6 +1614,17 @@ export const generateChapterPlan = async (
     const factionContext = settings.factions && settings.factions.length > 0
       ? settings.factions.map(f => `${f.name}: ${f.description} | 地域: ${f.territory} | 成员: ${f.members.join('、')}`).join('\n')
       : '暂无势力档案';
+
+    // Build location context
+    const locationContext = settings.locations && settings.locations.length > 0
+      ? settings.locations.map(l => {
+          let locInfo = `${l.name}: ${l.description}`;
+          if (l.factions && l.factions.length > 0) {
+            locInfo += ` | 归属势力: ${l.factions.join('、')}`;
+          }
+          return locInfo;
+        }).join('\n')
+      : '暂无地点档案';
 
     // 获取上一章结尾内容（约1000字，保证完整句型）
     let lastChapterEndContent = '';
@@ -1542,6 +1691,9 @@ ${characterContext}
 ## 势力档案
 ${factionContext}
 
+## 地点档案
+${locationContext}
+
 ## 当前剧情进度（剧情沙盘）
 ${settings.currentPlotProgress || '刚开始'}
 
@@ -1589,6 +1741,7 @@ ${authorNote}
 - 符合小说的题材风格和金手指设定
 - 遵循世界规律法则的设定
 - 考虑势力之间的关系和冲突
+- 考虑地点的环境特征和氛围
 - 重点情节(major)应该是推动剧情的核心事件
 - 略写情节(minor)是过渡性的次要事件
 - 如果没有新角色，newCharacters可以为空数组
@@ -1621,31 +1774,48 @@ ${authorNote ? '- 必须考虑本章特殊要求（作者备注）' : ''}`;
 };
 
 /**
- * Multi-turn Chat for Editing/Refining
+ * Multi-turn Chat for Editing/Refining with selected text support
  */
 export const chatWithChapter = async (
   history: { role: 'user' | 'model', content: string }[],
   currentChapterContent: string,
   settings: NovelSettings,
-  model: AvailableModel
+  model: AvailableModel,
+  selectedText?: string
 ): Promise<string> => {
   try {
-    const systemPrompt = `Role: You are an expert Web Novel Editor and Co-author.
-Your Task: Help the user refine, rewrite, or brainstorm the CURRENT CHAPTER.
+    let systemPrompt = `你是一位专业的网文编辑和创作助手。你的任务是帮助用户优化、改写或提供创作建议。
 
-Context:
-- Novel Title: ${settings.title}
-- Style: ${settings.style}
-- Author's Note: ${settings.authorNote}
+小说信息：
+- 书名：${settings.title}
+- 风格：${settings.style}
+- 文风要求：${settings.authorNote}
 
-=== CURRENT CHAPTER CONTENT (Read-Only Context) ===
-${currentChapterContent}
+=== 当前章节完整内容（参考上下文） ===
+${currentChapterContent.length > 10000 ? currentChapterContent.substring(0, 10000) + '...(内容过长已截断)' : currentChapterContent}
 ===================================================
 
-Guidelines:
-1. Provide constructive feedback or direct rewrites as requested.
-2. If the user asks for a rewrite, provide the full text of the revised section clearly.
-3. Maintain the novel's tone (e.g., fast-paced, action-oriented).`;
+${selectedText ? `
+=== 用户选中的文本片段 ===
+${selectedText}
+===================================================
+
+⚠️ 重要提示：用户已选中上述文本片段，他们的问题很可能是针对这段文本的。
+` : ''}
+
+工作指南：
+1. 如果用户要求改写或润色，请直接提供修改后的完整文本，用清晰的格式标注
+2. 如果用户询问建议，提供具体可操作的改进意见
+3. 保持小说的整体风格和节奏
+4. 对于选中的文本，优先针对该片段提供帮助
+5. 改写时要保持原文的核心意图和剧情逻辑
+
+常见任务示例：
+- "润色这段" → 直接输出润色后的文本
+- "这段太平淡了" → 提供更有张力的改写版本
+- "增加细节描写" → 在原文基础上扩充细节
+- "简化这段" → 提供精简版本
+- "改成第一人称" → 转换视角后的版本`;
 
     // Convert history to OpenAI format
     const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
@@ -1663,6 +1833,67 @@ Guidelines:
     return response || "AI 暂时无法回应";
   } catch (error) {
     console.error("API Error (chatWithChapter):", error);
+    throw error;
+  }
+};
+
+/**
+ * Smart text editing based on selected text and user instruction
+ * Returns the edited version of the selected text
+ */
+export const editSelectedText = async (
+  selectedText: string,
+  instruction: string,
+  fullChapterContent: string,
+  settings: NovelSettings,
+  model: AvailableModel
+): Promise<string> => {
+  try {
+    const systemPrompt = `你是一位专业的网文编辑。用户选中了章节中的一段文本，并提出了修改要求。
+
+小说信息：
+- 书名：${settings.title}
+- 风格：${settings.style}
+- 文风要求：${settings.authorNote}
+
+=== 章节上下文（供参考） ===
+${fullChapterContent.length > 8000 ? fullChapterContent.substring(0, 8000) + '...(内容过长已截断)' : fullChapterContent}
+===================================================
+
+任务要求：
+1. 根据用户的指令修改选中的文本
+2. 保持与章节整体风格的一致性
+3. 确保修改后的文本与前后文衔接自然
+4. 只输出修改后的文本，不要添加任何解释或前缀
+5. 保持原文的核心意图和剧情逻辑
+
+常见修改类型：
+- 润色/优化：提升文字质量，增强表现力
+- 扩写：增加细节描写，丰富内容
+- 缩写：精简冗余，保留核心
+- 改写：调整表达方式，改变叙述角度
+- 修正：纠正逻辑问题或文字错误`;
+
+    const userPrompt = `用户选中的文本：
+"""
+${selectedText}
+"""
+
+修改要求：${instruction}
+
+请直接输出修改后的文本，不要有任何其他内容。`;
+
+    const response = await withRetry(() => callChatAPI(model, [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ], {
+      max_tokens: 4096,
+      temperature: 0.7
+    }));
+
+    return response.trim();
+  } catch (error) {
+    console.error("API Error (editSelectedText):", error);
     throw error;
   }
 };
@@ -2256,6 +2487,457 @@ Ensure output is valid JSON.`;
 
   } catch (error) {
     console.error("API Error (syncPlotBatch):", error);
+    throw error;
+  }
+};
+
+// ============================================
+// Chapter Review System (Editor Perspective)
+// ============================================
+
+/**
+ * Specific edit suggestion with location and replacement text
+ */
+export interface EditSuggestion {
+  id: string; // 唯一标识
+  category: '节奏' | '对话' | '描写' | '逻辑' | '文笔' | '其他'; // 问题类型
+  severity: 'critical' | 'major' | 'minor'; // 严重程度
+  originalText: string; // 原文片段（用于定位）
+  issue: string; // 问题描述
+  suggestion: string; // 修改建议
+  replacementText?: string; // 建议的替换文本（可选）
+}
+
+/**
+ * Comprehensive chapter review from editor's perspective
+ * Analyzes chapter quality across multiple dimensions
+ */
+export interface ChapterReview {
+  overallScore: number; // 0-100
+  dimensions: {
+    plotCoherence: { score: number; feedback: string }; // 剧情连贯性
+    characterConsistency: { score: number; feedback: string }; // 人物一致性
+    pacing: { score: number; feedback: string }; // 节奏把控
+    writingQuality: { score: number; feedback: string }; // 文笔质量
+    emotionalImpact: { score: number; feedback: string }; // 情感张力
+    worldConsistency: { score: number; feedback: string }; // 世界观一致性
+  };
+  strengths: string[]; // 优点列表
+  weaknesses: string[]; // 问题列表
+  suggestions: string[]; // 改进建议（已废弃，使用editSuggestions）
+  criticalIssues: string[]; // 严重问题（如逻辑漏洞、人物OOC等）
+  editSuggestions: EditSuggestion[]; // 具体的编辑建议列表
+}
+
+export const reviewChapter = async (
+  chapterTitle: string,
+  chapterContent: string,
+  settings: NovelSettings,
+  previousChapters: Chapter[],
+  model: AvailableModel
+): Promise<ChapterReview> => {
+  try {
+    // 获取上一章完整内容作为上下文
+    const lastChapter = previousChapters.length > 0 ? previousChapters[previousChapters.length - 1] : null;
+    const lastChapterContext = lastChapter
+      ? `\n\n=== 上一章内容（完整） ===\n标题：${lastChapter.title}\n${lastChapter.content}`
+      : '';
+
+    // 简单的RAG检索：基于章节内容提取相关档案
+    const relevantCharacters: Character[] = [];
+    const relevantFactions: Faction[] = [];
+    const relevantLocations: Location[] = [];
+
+    // 检索相关角色
+    if (settings.characters && settings.characters.length > 0) {
+      settings.characters.forEach(char => {
+        // 如果章节内容中提到了角色名字，则认为相关
+        if (chapterContent.includes(char.name)) {
+          relevantCharacters.push(char);
+        }
+      });
+    }
+
+    // 检索相关势力
+    if (settings.factions && settings.factions.length > 0) {
+      settings.factions.forEach(faction => {
+        if (chapterContent.includes(faction.name)) {
+          relevantFactions.push(faction);
+        }
+      });
+    }
+
+    // 检索相关地点
+    if (settings.locations && settings.locations.length > 0) {
+      settings.locations.forEach(location => {
+        if (chapterContent.includes(location.name)) {
+          relevantLocations.push(location);
+        }
+      });
+    }
+
+    // 构建档案信息
+    const characterInfo = relevantCharacters.length > 0
+      ? relevantCharacters.map(c => `【${c.name}】（${c.role}）\n${c.description}`).join('\n\n')
+      : '本章未检索到相关角色档案';
+
+    const factionInfo = relevantFactions.length > 0
+      ? relevantFactions.map(f => `【${f.name}】\n${f.description}`).join('\n\n')
+      : '本章未检索到相关势力档案';
+
+    const locationInfo = relevantLocations.length > 0
+      ? relevantLocations.map(l => `【${l.name}】\n${l.description}`).join('\n\n')
+      : '本章未检索到相关地点档案';
+
+    const systemPrompt = `你是一位资深的网络小说主编，拥有丰富的审稿经验。你的任务是对章节进行全面、专业的审稿分析。
+
+## 小说基础信息
+- 书名：${settings.title}
+- 风格：${settings.style}
+- 核心设定/金手指：${settings.goldFinger || '无'}
+- 世界观背景：${settings.background || '无'}
+- 升级/战力体系：${settings.levelingSystem || '无'}
+- 世界规律法则：${settings.worldRules || '无'}
+- 文风要求：${settings.authorNote || '无'}
+
+## 相关档案信息（基于RAG检索）
+
+### 角色档案
+${characterInfo}
+
+### 势力档案
+${factionInfo}
+
+### 地点档案
+${locationInfo}
+
+## 剧情沙盘（完整）
+${settings.currentPlotProgress || '刚开始'}
+${lastChapterContext}
+
+## 审稿维度说明
+
+请从以下6个维度对章节进行评分（0-100分）和分析：
+
+**评分标准（严格执行）：**
+- 95-100分：卓越水平，几乎完美，可作为范文
+- 90-94分：优秀水平，仅有极小瑕疵
+- 85-89分：良好水平，有明显优点但存在可改进空间
+- 80-84分：中上水平，基本达标但有较多改进空间
+- 75-79分：中等水平，勉强及格，需要较大改进
+- 70-74分：中下水平，存在明显问题
+- 65-69分：较差水平，问题较多
+- 60-64分：差，严重问题
+- 60分以下：极差，需要重写
+
+**评分原则：**
+- 采用严格的专业编辑标准，不轻易给高分
+- 80分以上需要有明确的优秀表现
+- 90分以上需要接近完美，极少瑕疵
+- 发现任何明显问题都应扣分
+- 综合评分应略低于各维度平均分（体现严格性）
+
+1. **剧情连贯性 (plotCoherence)** - 权重：20%
+   - 与上一章的衔接是否自然（5分）
+   - 剧情推进是否合理（5分）
+   - 是否有突兀或跳跃的情节（5分）
+   - 伏笔和铺垫是否到位（5分）
+
+   **扣分项：**
+   - 剧情跳跃、缺乏过渡：-10分
+   - 与前文矛盾：-15分
+   - 逻辑不通：-10分
+   - 伏笔处理不当：-5分
+
+2. **人物一致性 (characterConsistency)** - 权重：20%
+   - 角色行为是否符合人设（5分）
+   - 对话是否符合角色性格（5分）
+   - 是否出现OOC（Out of Character）（5分）
+   - 角色关系处理是否合理（5分）
+
+   **扣分项：**
+   - 严重OOC：-20分
+   - 对话千篇一律：-10分
+   - 人物关系混乱：-10分
+   - 角色动机不明：-8分
+
+3. **节奏把控 (pacing)** - 权重：15%
+   - 叙事节奏是否合适（5分）
+   - 详略是否得当（5分）
+   - 是否有拖沓或过于仓促的部分（5分）
+   - 高潮和低谷的安排（5分）
+
+   **扣分项：**
+   - 节奏拖沓：-10分
+   - 节奏过快：-8分
+   - 重点不突出：-8分
+   - 缺乏起伏：-10分
+
+4. **文笔质量 (writingQuality)** - 权重：20%
+   - 语言表达是否流畅（5分）
+   - 描写是否生动（5分）
+   - 是否有语病或表达不清的地方（5分）
+   - 是否符合文风要求（5分）
+
+   **扣分项：**
+   - 语句不通顺：-10分
+   - 描写平淡：-8分
+   - 语病较多：-12分
+   - 用词不当：-5分
+
+5. **情感张力 (emotionalImpact)** - 权重：15%
+   - 情感渲染是否到位（5分）
+   - 冲突是否有张力（5分）
+   - 是否能引起读者共鸣（5分）
+   - 爽点是否足够（5分）
+
+   **扣分项：**
+   - 情感平淡：-10分
+   - 冲突乏力：-10分
+   - 缺乏共鸣点：-8分
+   - 爽点不足：-8分
+
+6. **世界观一致性 (worldConsistency)** - 权重：10%
+   - 是否符合已设定的世界观（5分）
+   - 力量体系是否合理（5分）
+   - 是否有设定矛盾（5分）
+   - 细节是否经得起推敲（5分）
+
+   **扣分项：**
+   - 与设定矛盾：-15分
+   - 力量体系混乱：-12分
+   - 细节经不起推敲：-8分
+   - 世界观崩坏：-20分
+
+## 输出要求
+
+请以JSON格式输出审稿结果，包含以下字段：
+
+\`\`\`json
+{
+  "overallScore": 78,
+  "dimensions": {
+    "plotCoherence": {
+      "score": 82,
+      "feedback": "剧情衔接基本自然，但第3段与上一章的过渡略显生硬，建议增加铺垫..."
+    },
+    "characterConsistency": {
+      "score": 75,
+      "feedback": "主角的反应与人设有轻微偏差，在面对危机时表现过于冷静，不符合其冲动的性格设定..."
+    },
+    "pacing": {
+      "score": 80,
+      "feedback": "整体节奏把控尚可，但中段描写略显拖沓，建议精简..."
+    },
+    "writingQuality": {
+      "score": 85,
+      "feedback": "文笔流畅，描写较为生动，但部分对话略显生硬..."
+    },
+    "emotionalImpact": {
+      "score": 76,
+      "feedback": "情感渲染有一定力度，但高潮部分张力不足，建议强化冲突..."
+    },
+    "worldConsistency": {
+      "score": 88,
+      "feedback": "基本符合世界观设定，力量体系运用合理，细节考究..."
+    }
+  },
+  "strengths": [
+    "战斗场面描写较为精彩，动作流畅",
+    "世界观细节把握到位",
+    "文笔整体流畅"
+  ],
+  "weaknesses": [
+    "主角性格表现与人设有偏差",
+    "中段节奏拖沓，部分描写冗余",
+    "情感高潮部分张力不足",
+    "部分对话略显生硬"
+  ],
+  "suggestions": [
+    "建议在第3段增加环境描写，增强氛围感",
+    "主角的情绪转变可以更细腻一些",
+    "结尾的悬念可以再强化"
+  ],
+  "criticalIssues": [
+    "第5段中提到的'灵石'数量与上一章矛盾（上章是100块，本章变成了200块）"
+  ],
+  "editSuggestions": [
+    {
+      "id": "edit_1",
+      "category": "描写",
+      "severity": "major",
+      "originalText": "林焚走进房间，看到桌上有一本书。",
+      "issue": "描写过于简单，缺乏画面感和细节",
+      "suggestion": "增加环境描写和人物动作细节，营造氛围",
+      "replacementText": "林焚推开吱呀作响的木门，一股陈旧的书卷气息扑面而来。昏暗的房间里，一缕斜阳透过窗棂洒在桌案上，照亮了那本泛黄的古籍。"
+    },
+    {
+      "id": "edit_2",
+      "category": "对话",
+      "severity": "minor",
+      "originalText": "\"你来了。\"苏倾城说。",
+      "issue": "对话缺乏情感和人物性格体现",
+      "suggestion": "根据角色性格和当前情境，丰富对话的情感层次",
+      "replacementText": "\"你来了。\"苏倾城淡淡地说，语气中带着几分疏离，连眼神都没有抬起。"
+    }
+  ]
+}
+\`\`\`
+
+注意事项：
+- **严格评分**：采用专业编辑标准，不轻易给高分，80分以上需要有明确优秀表现，90分以上需要接近完美
+- **综合评分计算**：综合评分 = 各维度加权平均分 - 5分（体现严格性），最低不低于60分
+- **分值区间细化**：
+  * 95-100：卓越（可作范文）
+  * 90-94：优秀（极小瑕疵）
+  * 85-89：良好（有改进空间）
+  * 80-84：中上（较多改进空间）
+  * 75-79：中等（需较大改进）
+  * 70-74：中下（明显问题）
+  * 65-69：较差（问题较多）
+  * 60-64：差（严重问题）
+  * <60：极差（需重写）
+- feedback要具体，必须指出具体的问题位置和改进方向
+- strengths和weaknesses要列举3-5条，必须具体
+- suggestions要具体可操作，指出具体段落或情节
+- criticalIssues只列举严重的逻辑漏洞、设定矛盾、人物OOC等问题，如果没有则返回空数组
+- **editSuggestions（重要）**：提供5-10条具体的编辑建议，每条建议必须包含：
+  * id: 唯一标识（如 "edit_1", "edit_2"）
+  * category: 问题类型（节奏/对话/描写/逻辑/文笔/其他）
+  * severity: 严重程度（critical/major/minor）
+  * originalText: 原文片段（20-100字，用于定位，必须是章节中的原文）
+  * issue: 问题描述（简洁明了）
+  * suggestion: 修改建议（具体可操作）
+  * replacementText: 建议的替换文本（可选，如果有具体的改写建议）
+- 所有文本必须使用中文
+- **JSON格式要求**：
+  * 必须返回有效的JSON对象
+  * 所有字符串值中的引号必须转义
+  * 不要在JSON中使用换行符，如需换行使用\\n
+  * 确保所有括号和引号正确闭合
+  * 不要在最后一个元素后添加逗号`;
+
+    const userPrompt = `请审稿以下章节：
+
+## 章节标题
+${chapterTitle}
+
+## 章节内容
+${chapterContent}
+
+请进行全面的审稿分析，并返回严格符合JSON格式的结果。`;
+
+    const response = await withRetry(() => callChatAPI(model, [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ], {
+      response_format: { type: 'json_object' },
+      max_tokens: 4096,
+      temperature: 0.3
+    }));
+
+    let result = parseAIResponse(response);
+
+    // If parsing failed, try to fix with AI
+    if (!result && response) {
+      console.log('JSON parsing failed, attempting AI fix...');
+      result = await fixJSONWithAI(response, model);
+    }
+
+    if (!result) {
+      throw new Error('Failed to parse review response even after AI fix attempt');
+    }
+
+    return result as ChapterReview;
+  } catch (error) {
+    console.error('Error reviewing chapter:', error);
+    throw error;
+  }
+};
+
+// ============================================
+// Batch Optimization System
+// ============================================
+
+/**
+ * Batch optimize chapter content
+ * Applies multiple optimization strategies to improve overall quality
+ */
+export interface BatchOptimizationOptions {
+  enhancePacing?: boolean; // 优化节奏
+  enhanceDialogue?: boolean; // 优化对话
+  enhanceDescription?: boolean; // 优化描写
+  enhanceEmotion?: boolean; // 增强情感
+  fixGrammar?: boolean; // 修正语病
+  improveReadability?: boolean; // 提升可读性
+}
+
+export const batchOptimizeChapter = async (
+  chapterContent: string,
+  settings: NovelSettings,
+  model: AvailableModel,
+  options: BatchOptimizationOptions = {}
+): Promise<string> => {
+  try {
+    // 默认启用所有优化
+    const finalOptions = {
+      enhancePacing: true,
+      enhanceDialogue: true,
+      enhanceDescription: true,
+      enhanceEmotion: true,
+      fixGrammar: true,
+      improveReadability: true,
+      ...options
+    };
+
+    const optimizationTasks: string[] = [];
+    if (finalOptions.enhancePacing) optimizationTasks.push('优化叙事节奏，确保详略得当');
+    if (finalOptions.enhanceDialogue) optimizationTasks.push('优化对话，使其更生动自然');
+    if (finalOptions.enhanceDescription) optimizationTasks.push('增强描写的画面感和细节');
+    if (finalOptions.enhanceEmotion) optimizationTasks.push('强化情感渲染和张力');
+    if (finalOptions.fixGrammar) optimizationTasks.push('修正语病和表达不清的地方');
+    if (finalOptions.improveReadability) optimizationTasks.push('提升整体可读性和流畅度');
+
+    const systemPrompt = `你是一位资深的网文编辑，擅长对章节进行全面优化。
+
+## 小说信息
+- 书名：${settings.title}
+- 风格：${settings.style}
+- 文风要求：${settings.authorNote}
+
+## 优化任务
+请对以下章节内容进行批量优化，具体要求：
+
+${optimizationTasks.map((task, idx) => `${idx + 1}. ${task}`).join('\n')}
+
+## 优化原则
+1. 保持原文的核心剧情和人物设定不变
+2. 保持原文的字数规模（允许±10%的浮动）
+3. 严格遵循文风要求
+4. 优化要自然，不要过度修饰
+5. 保持网文的爽点和节奏感
+6. 确保前后文衔接自然
+
+## 输出要求
+直接输出优化后的完整章节内容，不要添加任何解释或前缀。`;
+
+    const userPrompt = `请优化以下章节内容：
+
+${chapterContent}
+
+请直接输出优化后的完整内容。`;
+
+    const response = await withRetry(() => callChatAPI(model, [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ], {
+      max_tokens: 8192,
+      temperature: 0.7
+    }));
+
+    return response.trim();
+  } catch (error) {
+    console.error('Error in batch optimization:', error);
     throw error;
   }
 };

@@ -98,6 +98,64 @@
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
         }
+
+        /* 扫描光束动画 */
+        @keyframes scan-beam {
+            0% {
+                top: -32px;
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                top: 100%;
+                opacity: 0;
+            }
+        }
+        .animate-scan-beam {
+            animation: scan-beam 2s ease-in-out infinite;
+        }
+
+        /* 印章盖章动画 */
+        @keyframes stamp {
+            0% {
+                transform: translateY(-100px) rotate(-10deg) scale(0.5);
+                opacity: 0;
+            }
+            50% {
+                transform: translateY(0) rotate(0deg) scale(1.1);
+                opacity: 1;
+            }
+            70% {
+                transform: translateY(0) rotate(0deg) scale(0.95);
+            }
+            100% {
+                transform: translateY(0) rotate(0deg) scale(1);
+                opacity: 1;
+            }
+        }
+        .animate-stamp {
+            animation: stamp 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+
+        /* 印章波纹动画 */
+        @keyframes stamp-ripple {
+            0% {
+                transform: scale(1);
+                opacity: 0.8;
+            }
+            100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+        .animate-stamp-ripple {
+            animation: stamp-ripple 1s ease-out infinite;
+        }
     </style>
 <script type="importmap">
 {

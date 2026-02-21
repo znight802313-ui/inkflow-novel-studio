@@ -92,6 +92,63 @@ export interface Chapter {
   createdAt: number;
 }
 
+// 版本管理相关类型
+export interface ChapterVersion {
+  id: string;              // 唯一标识
+  content: string;         // 完整内容快照
+  timestamp: number;       // 时间戳
+  note: string;            // 版本说明
+  type: 'manual' | 'ai' | 'auto';  // 版本类型
+}
+
+// 编辑助手对话消息
+export interface EditorChatMessage {
+  role: 'user' | 'model';
+  text: string;
+  timestamp: number;
+  quotedText?: string;     // 引用的原文片段
+}
+
+// 章节创作配置
+export interface ChapterConfig {
+  wordCount: number | null;  // 目标字数，null 表示默认 2000+
+  selectedCharacters: string[];  // 已选择的出场角色名
+  newCharacters: { name: string; description: string }[];  // 新增角色
+  plotPoints: { content: string; importance: 'major' | 'minor' }[];  // 剧情情节点（带重要度）
+  synopsis: string;  // 章节梗概
+  authorNote: string;  // 作者备注（本章特殊要求）
+}
+
+// 聊天消息
+export interface ChatMessage {
+  role: 'user' | 'model';
+  content: string;
+}
+
+// 章节草稿
+export interface ChapterDraft {
+  _id?: string;                  // CloudBase 自动生成的ID
+  id: string;                    // 草稿唯一ID
+  projectId: string;             // 所属项目
+  chapterNumber: number;         // 对应的章节编号（0表示新章节）
+  title: string;                 // 章节标题
+  content: string;               // 章节内容
+
+  // 章节配置
+  config: ChapterConfig;         // 字数、角色、剧情点等配置
+
+  // 聊天历史
+  chatHistory: ChatMessage[];    // AI对话记录
+
+  // 版本历史
+  versions: ChapterVersion[];    // 历史版本列表
+
+  // 元数据
+  createdAt: number;             // 创建时间戳
+  updatedAt: number;             // 最后更新时间戳
+  status: 'editing' | 'completed'; // 草稿状态
+}
+
 export interface WorkflowState {
   settings: NovelSettings;
   chapters: Chapter[];
@@ -112,7 +169,7 @@ export type AvailableModel =
   | 'claude-opus-4-5-20251101'
   | '[次]gemini-3-pro-preview-thinking'
   | '[次]gemini-3.1-pro-preview'
-  | '[次]grok-4.1-thinking'
+  | '[次]grok-4.2'
   | '[限时]kimi-k2.5'
   | '[次]deepseek-v3.2';
 
@@ -134,7 +191,7 @@ export const MODEL_OPTIONS: ModelConfig[] = [
   { id: 'claude-opus-4-5-20251101', label: 'Opus 4.5', badge: '旗舰版', category: 'Premium', provider: 'Claude' },
   { id: '[次]gemini-3-pro-preview-thinking', label: '3.0 Pro Thinking', badge: '深度思考', category: 'Thinking', provider: 'Gemini' },
   { id: '[次]gemini-3.1-pro-preview', label: '3.1 Pro', badge: '最新版', category: 'Standard', provider: 'Gemini' },
-  { id: '[次]grok-4.1-thinking', label: '4.1 Thinking', badge: '按次计费', category: 'Thinking', provider: 'Grok' },
+  { id: '[次]grok-4.2', label: '4.2', badge: '按次计费', category: 'Standard', provider: 'Grok' },
   { id: '[限时]kimi-k2.5', label: 'K2.5', badge: '限时优惠', category: 'Standard', provider: 'Kimi' },
   { id: '[次]deepseek-v3.2', label: 'V3.2', badge: '按次计费', category: 'Standard', provider: 'DeepSeek' },
 ];
